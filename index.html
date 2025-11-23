@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BET Slides AI - Professional Presentation Generator</title>
+    <style>
+      @media print {
+        /* Print one slide per page */
+        @page {
+          size: A4 landscape;
+          margin: 0.5cm;
+        }
+
+        /* Hide everything except slides */
+        body {
+          margin: 0;
+          padding: 0;
+          overflow: visible !important;
+        }
+
+        /* Remove any max-height constraints */
+        * {
+          max-height: none !important;
+          overflow: visible !important;
+        }
+
+        /* Ensure slides print correctly */
+        .print\\:break-after-page {
+          page-break-after: always;
+          break-after: page;
+          break-inside: avoid;
+        }
+
+        /* Make sure all slide content is visible */
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+        }
+
+        /* Ensure images print */
+        img {
+          max-width: 100% !important;
+          height: auto !important;
+          display: block !important;
+          page-break-inside: avoid;
+        }
+
+        /* Ensure bullet points and content are visible */
+        ul, li, p, span, div {
+          color: black !important;
+          opacity: 1 !important;
+        }
+
+        /* Preserve background colors but lighten for print */
+        .bg-blue-900, [class*="bg-blue-9"] {
+          background-color: #3b82f6 !important; /* Lighter blue for print */
+          color: white !important;
+        }
+
+        [class*="bg-blue-5"], [class*="bg-blue-6"] {
+          background-color: #eff6ff !important; /* Very light blue */
+          color: #1e3a8a !important;
+        }
+
+        .bg-gray-50, [class*="bg-gray-5"] {
+          background-color: #f9fafb !important;
+        }
+
+        .bg-gray-100, [class*="bg-gray-1"] {
+          background-color: #f3f4f6 !important;
+        }
+
+        /* Make sure text is readable */
+        .text-white {
+          color: #1e3a8a !important; /* Dark blue instead of white for better print */
+        }
+
+        /* Override for title slides to keep white text */
+        .bg-blue-900 .text-white, [class*="bg-blue-9"] .text-white {
+          color: white !important;
+        }
+
+        .text-gray-800, .text-gray-900 {
+          color: #1f2937 !important;
+        }
+
+        .text-blue-600, .text-blue-700, .text-blue-800, .text-blue-900 {
+          color: #1e3a8a !important;
+        }
+
+        /* Ensure scroll view shows all slides */
+        .space-y-10 {
+          display: block !important;
+        }
+
+        /* Remove sticky/fixed positioning that might hide slides */
+        .sticky, .fixed {
+          position: relative !important;
+        }
+
+        /* Ensure no content is clipped */
+        .overflow-hidden, .overflow-y-auto {
+          overflow: visible !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
