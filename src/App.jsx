@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Settings,
   Plus,
+  PlusCircle,
   X,
   ChevronLeft,
   ChevronRight,
@@ -74,8 +75,8 @@ import {
 } from "firebase/firestore";
 
 // --- API Configuration ---
-const DEFAULT_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || "gemini-2.5-flash-preview-09-2025";
+const DEFAULT_API_KEY = (import.meta.env.VITE_GEMINI_API_KEY || "").trim();
+const GEMINI_MODEL = (import.meta.env.VITE_GEMINI_MODEL || "gemini-2.5-flash-preview-09-2025").trim();
 const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 const PPTX_LIB_URL = "https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js";
 
@@ -280,7 +281,7 @@ const generatePresentationContent = async (topic, slideCount, style, attachedFil
 
 // --- Helper: Image Generation (via Pixabay API - High Quality & CORS-Friendly) ---
 const generateSlideImage = async (prompt) => {
-  const pixabayApiKey = import.meta.env.VITE_PIXABAY_API_KEY;
+  const pixabayApiKey = import.meta.env.VITE_PIXABAY_API_KEY?.trim();
 
   if (!pixabayApiKey) {
     console.error('❌ Pixabay API key not found in environment variables');
@@ -288,17 +289,31 @@ const generateSlideImage = async (prompt) => {
   }
 
   try {
-    // Extract meaningful keywords from the prompt (remove filler words)
-    const keywords = prompt
+    // Step 1: Remove only very generic presentation-related words, keep descriptive content
+    let cleanedPrompt = prompt
       .toLowerCase()
-      .replace(/professional|presentation|slide|image|corporate|style|clean|showing|illustrating|graphic|depicting|highly|simple|modern|clear/gi, '')
-      .trim()
-      .substring(0, 100);
+      .replace(/\b(professional|presentation|slide|corporate|style|showing)\b/gi, '')
+      .trim();
 
-    // Search Pixabay for relevant images
-    const searchUrl = `https://pixabay.com/api/?key=${pixabayApiKey}&q=${encodeURIComponent(keywords)}&image_type=photo&per_page=3&safesearch=true&orientation=horizontal&order=popular`;
+    // Step 2: Extract meaningful words (keep words > 3 chars, preserve specific terms)
+    const words = cleanedPrompt
+      .split(/\s+/)
+      .filter(w => w.length > 3)
+      .filter(w => !/^(this|that|with|from|have|will|should|could|would)$/.test(w)); // Remove only common stop words
 
-    console.log(`🔍 Searching Pixabay for: "${keywords}"`);
+    // Step 3: Take up to 6-8 keywords to preserve specificity
+    const keywords = words.slice(0, Math.min(8, words.length)).join(' ');
+
+    // Step 4: If still too short, use a larger excerpt from original
+    const finalKeywords = keywords.length > 15 ? keywords : cleanedPrompt.substring(0, 80).trim();
+
+    // Step 5: Add variety by including slide-specific context
+    const searchKeywords = finalKeywords || prompt.substring(0, 60);
+
+    // Search Pixabay for relevant images (get 10 for more variety)
+    const searchUrl = `https://pixabay.com/api/?key=${pixabayApiKey}&q=${encodeURIComponent(searchKeywords)}&image_type=photo&per_page=10&safesearch=true&orientation=horizontal&order=popular`;
+
+    console.log(`🔍 Searching Pixabay for: "${searchKeywords}"`);
 
     const response = await fetch(searchUrl);
     const data = await response.json();
@@ -306,7 +321,7 @@ const generateSlideImage = async (prompt) => {
     if (!data.hits || data.hits.length === 0) {
       console.warn('⚠️ No Pixabay results, trying fallback search');
       // Fallback to generic business/tech images
-      const fallbackUrl = `https://pixabay.com/api/?key=${pixabayApiKey}&q=business+technology&image_type=photo&per_page=3&safesearch=true&orientation=horizontal`;
+      const fallbackUrl = `https://pixabay.com/api/?key=${pixabayApiKey}&q=business+technology&image_type=photo&per_page=10&safesearch=true&orientation=horizontal`;
       const fallbackResponse = await fetch(fallbackUrl);
       const fallbackData = await fallbackResponse.json();
 
@@ -317,8 +332,9 @@ const generateSlideImage = async (prompt) => {
       data.hits = fallbackData.hits;
     }
 
-    // Get the first high-quality image (largeImageURL = 1280px max, CORS-friendly)
-    const imageUrl = data.hits[0].largeImageURL;
+    // Get a random high-quality image from results for variety (largeImageURL = 1280px max, CORS-friendly)
+    const randomIndex = Math.floor(Math.random() * data.hits.length);
+    const imageUrl = data.hits[randomIndex].largeImageURL;
     console.log('✅ Pixabay image found:', imageUrl.substring(0, 80) + '...');
 
     // Return URL only - base64 conversion happens on-the-fly during PPTX export
@@ -463,9 +479,9 @@ const Slide = ({ data, index, total, onImageUpdate, apiKey }) => {
   };
 
   return (
-    <div className="w-full bg-white shadow-xl rounded-lg flex flex-col relative border border-gray-200 print:shadow-none print:border-2 print:break-after-page print:mb-8 transition-all duration-300 md:min-h-[500px]">
+    <div className="w-full max-w-full bg-white shadow-xl rounded-lg flex flex-col relative border border-gray-200 print:shadow-none print:border-2 print:break-after-page print:mb-8 transition-all duration-300 overflow-hidden">
       <div
-        className={`px-4 py-4 md:px-8 md:py-6 ${isTitle ? 'text-white flex-grow flex flex-col justify-center items-center text-center py-12 rounded-t-lg relative' : 'bg-gray-50 border-b border-gray-200 rounded-t-lg'}`}
+        className={`px-2 py-3 sm:px-4 sm:py-4 md:px-8 md:py-6 ${isTitle ? 'text-white flex-grow flex flex-col justify-start md:justify-center items-center text-center py-4 sm:py-6 md:py-8 lg:py-12 rounded-t-lg relative' : 'bg-gray-50 border-b border-gray-200 rounded-t-lg'}`}
         style={isTitle && data.imgData ? {
           backgroundImage: `linear-gradient(rgba(30, 58, 138, 0.7), rgba(30, 58, 138, 0.7)), url(${data.imgData})`,
           backgroundSize: 'cover',
@@ -473,7 +489,7 @@ const Slide = ({ data, index, total, onImageUpdate, apiKey }) => {
           backgroundRepeat: 'no-repeat'
         } : isTitle ? { backgroundColor: '#1E3A8A' } : {}}
       >
-        <h2 className={`${isTitle ? 'text-3xl sm:text-4xl md:text-5xl lg:text-6xl' : 'text-xl sm:text-2xl md:text-3xl'} font-bold tracking-tight leading-tight ${isTitle ? 'text-white relative z-10' : 'text-blue-900'}`}>
+        <h2 className={`${isTitle ? 'text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl' : 'text-lg sm:text-xl md:text-2xl lg:text-3xl'} font-bold tracking-tight leading-tight ${isTitle ? 'text-white relative z-10' : 'text-blue-900'} break-words w-full`}>
           {data.title}
         </h2>
         {isTitle && data.content && (
@@ -484,15 +500,15 @@ const Slide = ({ data, index, total, onImageUpdate, apiKey }) => {
       </div>
 
       {!isTitle && (
-        <div className="flex-grow p-4 md:p-8 flex flex-col md:flex-row gap-6 md:gap-8">
-          <div className={`flex-1 flex flex-col justify-center ${isQuote ? 'items-center text-center italic' : ''}`}>
-            <ul className="space-y-4 md:space-y-6">
+        <div className="flex-grow p-2 sm:p-3 md:p-4 lg:p-6 xl:p-8 flex flex-col md:flex-row gap-3 sm:gap-4 md:gap-6 lg:gap-8">
+          <div className={`flex-1 flex flex-col justify-start md:justify-center ${isQuote ? 'items-center text-center italic' : ''}`}>
+            <ul className="space-y-2 sm:space-y-3 md:space-y-4 lg:space-y-6">
               {data.content.map((point, i) => {
                 // Handle both string and object formats
                 if (typeof point === 'string') {
                   return (
-                    <li key={i} className="flex items-start gap-3 text-base sm:text-lg md:text-2xl text-gray-800 leading-snug font-medium">
-                      {!isQuote && <span className="text-blue-500 mt-1.5 flex-shrink-0">•</span>}
+                    <li key={i} className="flex items-start gap-2 sm:gap-3 text-sm sm:text-base md:text-lg lg:text-2xl text-gray-800 leading-snug font-medium break-words">
+                      {!isQuote && <span className="text-blue-500 mt-1 sm:mt-1.5 flex-shrink-0 text-sm sm:text-base">•</span>}
                       <span>{point}</span>
                     </li>
                   );
@@ -500,15 +516,15 @@ const Slide = ({ data, index, total, onImageUpdate, apiKey }) => {
                   // Handle object format with header and bullets
                   return (
                     <li key={i} className="flex flex-col gap-2">
-                      <div className="flex items-start gap-3 text-base sm:text-lg md:text-2xl text-gray-800 leading-snug font-bold">
-                        {!isQuote && <span className="text-blue-500 mt-1.5 flex-shrink-0">•</span>}
-                        <span>{point.header}</span>
+                      <div className="flex items-start gap-2 sm:gap-3 text-sm sm:text-base md:text-lg lg:text-2xl text-gray-800 leading-snug font-bold break-words">
+                        {!isQuote && <span className="text-blue-500 mt-1 sm:mt-1.5 flex-shrink-0 text-sm sm:text-base">•</span>}
+                        <span className="break-words">{point.header}</span>
                       </div>
                       {point.bullets && Array.isArray(point.bullets) && (
-                        <ul className="ml-8 space-y-1">
+                        <ul className="ml-4 sm:ml-6 md:ml-8 space-y-1">
                           {point.bullets.map((bullet, j) => (
-                            <li key={j} className="flex items-start gap-2 text-sm md:text-base text-gray-700">
-                              <span className="text-blue-400 mt-1 flex-shrink-0">◦</span>
+                            <li key={j} className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm md:text-base text-gray-700">
+                              <span className="text-blue-400 mt-0.5 sm:mt-1 flex-shrink-0 text-xs sm:text-sm">◦</span>
                               <span>{bullet}</span>
                             </li>
                           ))}
@@ -519,8 +535,8 @@ const Slide = ({ data, index, total, onImageUpdate, apiKey }) => {
                 } else {
                   // Fallback for unexpected formats
                   return (
-                    <li key={i} className="flex items-start gap-3 text-base sm:text-lg md:text-2xl text-gray-800 leading-snug font-medium">
-                      {!isQuote && <span className="text-blue-500 mt-1.5 flex-shrink-0">•</span>}
+                    <li key={i} className="flex items-start gap-2 sm:gap-3 text-sm sm:text-base md:text-lg lg:text-2xl text-gray-800 leading-snug font-medium break-words">
+                      {!isQuote && <span className="text-blue-500 mt-1 sm:mt-1.5 flex-shrink-0 text-sm sm:text-base">•</span>}
                       <span>{JSON.stringify(point)}</span>
                     </li>
                   );
@@ -537,9 +553,9 @@ const Slide = ({ data, index, total, onImageUpdate, apiKey }) => {
           </div>
 
           {isSplit && (
-            <div className="flex-1 flex flex-col justify-center w-full md:w-auto mt-4 md:mt-0">
+            <div className="flex-1 flex flex-col justify-start md:justify-center w-full md:w-auto mt-4 md:mt-0">
               {isTable && <Caption text={data.visual_caption} position="top" />}
-              <div className="flex-grow bg-gray-100 rounded-xl overflow-hidden flex items-center justify-center border-2 border-dashed border-gray-300 relative group min-h-[250px]">
+              <div className="flex-grow bg-gray-100 rounded-xl overflow-hidden flex items-center justify-center border-2 border-dashed border-gray-300 relative group min-h-[150px] sm:min-h-[200px] md:min-h-[250px]">
                 {data.imgData ? (
                   <img src={data.imgData} alt="Slide Visual" className="w-full h-full object-contain bg-gray-50 print:object-scale-down" />
                 ) : (
@@ -703,9 +719,12 @@ const SettingsPanel = ({ apiKey, setApiKey }) => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-6 px-4">
-      <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2 text-center">Application Settings</h2>
-      <div className="bg-white p-6 md:p-8 rounded-xl shadow-lg space-y-6">
+    <div className="max-w-4xl mx-auto pt-0 pb-1 sm:py-4 md:py-6 px-2 sm:px-4">
+      <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 mb-1 sm:mb-3 md:mb-4 lg:mb-6 border-b pb-1 sm:pb-2 text-center flex items-center justify-center gap-2">
+        <Settings className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8" />
+        Application Settings
+      </h2>
+      <div className="bg-white p-2 sm:p-4 md:p-6 lg:p-8 rounded-xl shadow-lg space-y-2 sm:space-y-4 md:space-y-6">
         {saveStatus === 'success' && (
           <Message type="success" message="API Key saved successfully!" icon={CheckCircle2} onClose={() => setSaveStatus(null)} />
         )}
@@ -760,11 +779,11 @@ const SettingsPanel = ({ apiKey, setApiKey }) => {
 };
 
 const ContactPanel = () => (
-  <div className="max-w-4xl mx-auto py-6 px-4">
-    <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2 flex items-center justify-center gap-2">
-       <Mail className="w-7 h-7 text-blue-600" /> Contact & Support
+  <div className="max-w-4xl mx-auto pt-0 pb-1 sm:py-4 md:py-6 px-2 sm:px-4">
+    <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 mb-1 sm:mb-3 md:mb-4 lg:mb-6 border-b pb-1 sm:pb-2 flex items-center justify-center gap-1.5 sm:gap-2">
+       <Mail className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-blue-600 flex-shrink-0" /> <span className="truncate">Contact & Support</span>
     </h2>
-    <div className="bg-white p-6 md:p-8 rounded-xl shadow-lg space-y-6">
+    <div className="bg-white p-2 sm:p-4 md:p-6 lg:p-8 rounded-xl shadow-lg space-y-2 sm:space-y-4 md:space-y-6">
       <p className="text-gray-600">Questions or feedback? We'd love to hear from you.</p>
       <form onSubmit={(e) => e.preventDefault()} className="space-y-3">
          <input type="email" placeholder="Your Email" className="w-full p-3 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-blue-500" />
@@ -774,7 +793,7 @@ const ContactPanel = () => (
       <div className="space-y-4 border-t pt-4">
         <h4 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Connect with the Creator</h4>
         <div className="flex flex-wrap gap-4">
-           <a href="https://github.com/HorizonHnk/Presentation-Generator.git" target="_blank" rel="noopener noreferrer" className="text-gray-600 hover:text-gray-900 text-sm flex items-center gap-1"><Github size={16}/> GitHub Repo</a>
+           <a href="https://github.com/HorizonHnk/Presentation-Generator.git " target="_blank" rel="noopener noreferrer" className="text-gray-600 hover:text-gray-900 text-sm flex items-center gap-1"><Github size={16}/> GitHub Repo</a>
            <a href="#" className="text-gray-600 hover:text-blue-500 text-sm flex items-center gap-1"><Twitter size={16}/> @HnkHorizon</a>
            <a href="#" className="text-gray-600 hover:text-red-500 text-sm flex items-center gap-1"><Youtube size={16}/> @HNK2005</a>
            <a href="#" className="text-gray-600 hover:text-pink-500 text-sm flex items-center gap-1"><Instagram size={16}/> hhnk.3693</a>
@@ -785,11 +804,11 @@ const ContactPanel = () => (
 );
 
 const AboutPanel = () => (
-  <div className="max-w-4xl mx-auto py-6 px-4">
-      <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2 flex items-center justify-center gap-2">
-         <Info className="w-7 h-7 text-blue-600" /> About
+  <div className="max-w-4xl mx-auto pt-0 pb-1 sm:py-4 md:py-6 px-2 sm:px-4">
+      <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 mb-1 sm:mb-3 md:mb-4 lg:mb-6 border-b pb-1 sm:pb-2 flex items-center justify-center gap-1.5 sm:gap-2">
+         <Info className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-blue-600 flex-shrink-0" /> <span className="truncate">About</span>
       </h2>
-      <div className="bg-white p-6 md:p-8 rounded-xl shadow-lg space-y-6">
+      <div className="bg-white p-2 sm:p-4 md:p-6 lg:p-8 rounded-xl shadow-lg space-y-2 sm:space-y-4 md:space-y-6">
           <p className="text-lg font-semibold text-gray-700">
               BET Slides AI is an advanced tool for generating professional presentation decks with AI-powered speaker notes and coaching.
           </p>
@@ -812,11 +831,11 @@ const AboutPanel = () => (
                       <Github className="w-8 h-8 text-gray-300" />
                       <div>
                           <div className="font-bold text-sm">Presentation-Generator</div>
-                          <div className="text-xs text-gray-400 break-all">https://github.com/HorizonHnk/Presentation-Generator.git</div>
+                          <div className="text-xs text-gray-400 break-all">https://github.com/HorizonHnk/Presentation-Generator.git </div>
                       </div>
                   </div>
                   <a
-                    href="https://github.com/HorizonHnk/Presentation-Generator.git"
+                    href="https://github.com/HorizonHnk/Presentation-Generator.git "
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
@@ -831,16 +850,16 @@ const AboutPanel = () => (
 );
 
 const HomePanel = () => (
-  <div className="max-w-4xl mx-auto py-6 px-4">
-    <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2 flex items-center justify-center gap-2">
-      <Home className="w-7 h-7 text-blue-600" /> Welcome to BET Slides AI
+  <div className="max-w-4xl mx-auto pt-0 pb-1 sm:py-4 md:py-6 px-2 sm:px-4">
+    <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 mb-1 sm:mb-3 md:mb-4 lg:mb-6 border-b pb-1 sm:pb-2 flex items-center justify-center gap-1.5 sm:gap-2">
+      <Home className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 text-blue-600 flex-shrink-0" /> <span className="truncate">Welcome to BET Slides AI</span>
     </h2>
 
-    <div className="bg-white p-6 md:p-8 rounded-xl shadow-lg space-y-6">
+    <div className="bg-white p-2 sm:p-4 md:p-6 lg:p-8 rounded-xl shadow-lg space-y-2 sm:space-y-4 md:space-y-6">
       {/* Hero Section */}
-      <div className="bg-gradient-to-br from-blue-600 to-blue-800 text-white p-6 md:p-8 rounded-xl">
-        <h3 className="text-xl font-bold mb-2">Create Professional Presentations in Seconds</h3>
-        <p className="text-blue-100 mb-4">
+      <div className="bg-gradient-to-br from-blue-600 to-blue-800 text-white p-3 sm:p-5 md:p-6 lg:p-8 rounded-xl">
+        <h3 className="text-base sm:text-lg md:text-xl font-bold mb-1 sm:mb-2">Create Professional Presentations in Seconds</h3>
+        <p className="text-sm sm:text-base text-blue-100 mb-2 sm:mb-4">
           Transform your ideas into stunning PowerPoint presentations with AI-powered content generation,
           professional speaker notes, and voice coaching.
         </p>
@@ -856,38 +875,38 @@ const HomePanel = () => (
       </div>
 
       {/* Key Features */}
-      <div className="space-y-4">
-        <h4 className="font-bold text-gray-900 text-sm uppercase tracking-wider border-t pt-4">Key Features</h4>
+      <div className="space-y-1 sm:space-y-3 md:space-y-4">
+        <h4 className="font-bold text-gray-900 text-xs sm:text-sm uppercase tracking-wider border-t pt-1 sm:pt-3 md:pt-4">Key Features</h4>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="flex items-start gap-3">
-            <Sparkles className="w-5 h-5 text-blue-600 mt-0.5" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 sm:gap-3">
+          <div className="flex items-start gap-2 sm:gap-3">
+            <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 mt-0.5 flex-shrink-0" />
             <div>
-              <h5 className="font-semibold text-gray-800 text-sm">AI-Powered Generation</h5>
+              <h5 className="font-semibold text-gray-800 text-xs sm:text-sm">AI-Powered Generation</h5>
               <p className="text-xs text-gray-600">Professional content with Gemini AI</p>
             </div>
           </div>
 
-          <div className="flex items-start gap-3">
-            <Mic className="w-5 h-5 text-green-600 mt-0.5" />
+          <div className="flex items-start gap-2 sm:gap-3">
+            <Mic className="w-4 h-4 sm:w-5 sm:h-5 text-green-600 mt-0.5 flex-shrink-0" />
             <div>
-              <h5 className="font-semibold text-gray-800 text-sm">Voice Coaching</h5>
+              <h5 className="font-semibold text-gray-800 text-xs sm:text-sm">Voice Coaching</h5>
               <p className="text-xs text-gray-600">AI speaker notes and voice synthesis</p>
             </div>
           </div>
 
-          <div className="flex items-start gap-3">
-            <ImageIcon className="w-5 h-5 text-purple-600 mt-0.5" />
+          <div className="flex items-start gap-2 sm:gap-3">
+            <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600 mt-0.5 flex-shrink-0" />
             <div>
-              <h5 className="font-semibold text-gray-800 text-sm">Custom Images</h5>
+              <h5 className="font-semibold text-gray-800 text-xs sm:text-sm">Custom Images</h5>
               <p className="text-xs text-gray-600">Imagen 3.0 generated visuals</p>
             </div>
           </div>
 
-          <div className="flex items-start gap-3">
-            <Cloud className="w-5 h-5 text-orange-600 mt-0.5" />
+          <div className="flex items-start gap-2 sm:gap-3">
+            <Cloud className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600 mt-0.5 flex-shrink-0" />
             <div>
-              <h5 className="font-semibold text-gray-800 text-sm">Cloud Sync</h5>
+              <h5 className="font-semibold text-gray-800 text-xs sm:text-sm">Cloud Sync</h5>
               <p className="text-xs text-gray-600">Save and access from anywhere</p>
             </div>
           </div>
@@ -899,39 +918,49 @@ const HomePanel = () => (
 
 // --- Sidebar Section Component ---
 const SidebarSection = ({ title, children, isOpen, toggleOpen, Icon, isSidebarVisible }) => {
-    if (!isSidebarVisible) {
-        // Icon-only mode - show section icon and submenu items as icons
-        return (
-            <div className="mb-2">
+    // Icon-only mode on mobile OR when sidebar is collapsed on desktop
+    return (
+        <>
+            {/* Mobile: Always icon-only */}
+            <div className="mb-2 md:hidden">
                 <div className="flex flex-col items-center space-y-1">
                     {children}
                 </div>
             </div>
-        );
-    }
 
-    return (
-        <div className="mb-2">
-            <button
-                onClick={toggleOpen}
-                className="w-full flex items-center justify-between p-3 rounded-lg text-gray-800 hover:bg-gray-100 transition-colors group focus:outline-none"
-            >
-                <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-500 group-hover:text-blue-600">
-                    <Icon className="w-4 h-4" />
-                    {title}
-                </span>
-                {isOpen ? (
-                    <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+            {/* Desktop: Collapsible sections */}
+            <div className="mb-2 hidden md:block">
+                {!isSidebarVisible ? (
+                    // Icon-only mode on desktop
+                    <div className="flex flex-col items-center space-y-1">
+                        {children}
+                    </div>
                 ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                    // Full mode on desktop
+                    <>
+                        <button
+                            onClick={toggleOpen}
+                            className="w-full flex items-center justify-between p-3 rounded-lg text-gray-800 hover:bg-gray-100 transition-colors group focus:outline-none"
+                        >
+                            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-500 group-hover:text-blue-600">
+                                <Icon className="w-4 h-4" />
+                                {title}
+                            </span>
+                            {isOpen ? (
+                                <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                            ) : (
+                                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                            )}
+                        </button>
+                        {isOpen && (
+                            <div className="mt-1 space-y-1 pl-2 border-l-2 border-gray-100 ml-3">
+                                {children}
+                            </div>
+                        )}
+                    </>
                 )}
-            </button>
-            {isOpen && (
-                <div className="mt-1 space-y-1 pl-2 border-l-2 border-gray-100 ml-3">
-                    {children}
-                </div>
-            )}
-        </div>
+            </div>
+        </>
     );
 };
 
@@ -963,7 +992,45 @@ const PresentationSession = ({ apiKey, user, savedPresentation }) => {
   }, [savedPresentation]);
 
   const handleSurpriseMe = () => {
-    const topics = ["Future of AI", "Sustainable Energy", "Space Colonization", "Cognitive Science", "Blockchain Evolution"];
+    const topics = [
+      // Technology & Innovation
+      "Future of Artificial Intelligence", "Quantum Computing Revolution", "Blockchain Beyond Cryptocurrency",
+      "5G and 6G Networks", "Internet of Things Ecosystem", "Cybersecurity Best Practices",
+      "Edge Computing Architecture", "Neural Networks and Deep Learning", "Augmented Reality Applications",
+      "Virtual Reality in Education", "Autonomous Vehicles Technology", "Robotics and Automation",
+
+      // Business & Marketing
+      "Q3 Marketing Strategy", "Digital Transformation Roadmap", "E-commerce Growth Strategies",
+      "Customer Experience Optimization", "Brand Identity Development", "Social Media Marketing Trends",
+      "Data-Driven Decision Making", "Agile Project Management", "Remote Work Best Practices",
+      "Startup Pitch Deck", "Product Launch Strategy", "Supply Chain Optimization",
+
+      // Science & Environment
+      "Sustainable Energy Solutions", "Climate Change Mitigation", "Circular Economy Models",
+      "Renewable Energy Technologies", "Ocean Conservation Strategies", "Urban Green Spaces",
+      "Biodiversity Preservation", "Carbon Footprint Reduction", "Zero Waste Living",
+
+      // Space & Exploration
+      "Space Colonization Challenges", "Mars Exploration Timeline", "Satellite Technology",
+      "Asteroid Mining Potential", "Space Tourism Industry", "Lunar Base Development",
+
+      // Health & Wellness
+      "Mental Health Awareness", "Preventive Healthcare", "Telemedicine Revolution",
+      "Nutrition and Longevity", "Fitness Technology Trends", "Personalized Medicine",
+      "Sleep Science and Productivity", "Mindfulness in Workplace",
+
+      // Education & Learning
+      "Future of Online Education", "Gamification in Learning", "STEM Education Strategies",
+      "Lifelong Learning Culture", "Educational Technology Tools", "Student Engagement Techniques",
+
+      // Finance & Economics
+      "Cryptocurrency Investment", "Decentralized Finance (DeFi)", "Financial Literacy Programs",
+      "Stock Market Analysis", "Economic Recovery Strategies", "Personal Finance Management",
+
+      // Social & Culture
+      "Diversity and Inclusion", "Work-Life Balance", "Generation Z Trends",
+      "Cultural Heritage Preservation", "Social Impact Initiatives", "Community Building Strategies"
+    ];
     setTopic(topics[Math.floor(Math.random() * topics.length)]);
   };
 
@@ -1305,14 +1372,14 @@ const PresentationSession = ({ apiKey, user, savedPresentation }) => {
   // Input Step
   if (step === 'input') {
     return (
-      <div className="max-w-4xl mx-auto py-6 px-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2 text-center">
+      <div className="max-w-4xl mx-auto pt-0 pb-1 sm:py-4 md:py-6 px-2 sm:px-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-900 mb-1 sm:mb-3 md:mb-4 lg:mb-6 border-b pb-1 sm:pb-2 text-center">
             Create perfect slides, <span className="text-blue-600">instantly.</span>
         </h2>
 
-        <div className="bg-white p-6 md:p-8 rounded-xl shadow-lg border border-gray-200 space-y-6">
+        <div className="bg-white p-2 sm:p-4 md:p-6 lg:p-8 rounded-xl shadow-lg border border-gray-200 space-y-2 sm:space-y-4 md:space-y-6">
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-3">Topic</label>
+            <label className="block text-sm font-bold text-gray-700 mb-1.5 sm:mb-3">Topic</label>
             <div className="relative">
                <input type="text" value={topic} onChange={e => setTopic(e.target.value)} className="w-full p-4 md:p-5 pr-12 md:pr-14 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-base md:text-lg text-gray-900" placeholder="e.g. Q3 Marketing Strategy..." />
                <button onClick={handleSurpriseMe} className="absolute right-3 md:right-4 top-3 md:top-4 p-2 text-purple-500 hover:bg-purple-50 rounded-full" title="Surprise Me"><Sparkles size={20}/></button>
@@ -1335,7 +1402,7 @@ const PresentationSession = ({ apiKey, user, savedPresentation }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-3">Length</label>
+              <label className="block text-sm font-bold text-gray-700 mb-1.5 sm:mb-3">Length</label>
               <select value={slideCount} onChange={e => setSlideCount(Number(e.target.value))} className="w-full p-3 md:p-4 bg-gray-50 border border-gray-200 rounded-xl text-base md:text-lg text-gray-900">
                 <option value={5}>5 Slides</option>
                 <option value={8}>8 Slides</option>
@@ -1348,7 +1415,7 @@ const PresentationSession = ({ apiKey, user, savedPresentation }) => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-3">Style</label>
+              <label className="block text-sm font-bold text-gray-700 mb-1.5 sm:mb-3">Style</label>
               <select value={style} onChange={e => setStyle(e.target.value)} className="w-full p-3 md:p-4 bg-gray-50 border border-gray-200 rounded-xl text-base md:text-lg text-gray-900"><option value="Corporate">Corporate</option><option value="Creative">Creative</option><option value="Academic">Academic</option></select>
             </div>
           </div>
@@ -1415,30 +1482,31 @@ const PresentationSession = ({ apiKey, user, savedPresentation }) => {
        )}
 
        {/* Toolbar */}
-       <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200 print:hidden">
-           <button onClick={() => { setPresentation(null); setStep('input'); }} className="text-sm font-bold text-gray-500 hover:text-gray-900 flex items-center gap-1"><ChevronLeft size={16}/> Back to Edit</button>
-           <div className="flex gap-2">
+       <div className="flex justify-between items-center mb-2 sm:mb-4 md:mb-6 pb-2 sm:pb-3 md:pb-4 border-b border-gray-200 print:hidden">
+           <button onClick={() => { setPresentation(null); setStep('input'); }} className="text-[10px] sm:text-xs md:text-sm font-bold text-gray-500 hover:text-gray-900 flex items-center gap-0.5 sm:gap-1"><ChevronLeft size={14} className="sm:w-4 sm:h-4"/> <span className="hidden sm:inline">Back to Edit</span><span className="sm:hidden">Back</span></button>
+           <div className="flex gap-1 sm:gap-2">
               {user && (
                 <button
                   onClick={openSaveDialog}
                   disabled={saving}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-700 disabled:opacity-50"
+                  className="px-2 py-1 sm:px-3 sm:py-1.5 md:px-4 md:py-2 bg-green-600 text-white rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1 sm:gap-2 hover:bg-green-700 disabled:opacity-50"
                 >
-                  {saving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
-                  Save
+                  {saving ? <Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin"/> : <Save size={12} className="sm:w-3.5 sm:h-3.5"/>}
+                  <span className="hidden sm:inline">Save</span>
                 </button>
               )}
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                 <button onClick={() => setViewMode('slideshow')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode === 'slideshow' ? 'bg-white shadow text-blue-900' : 'text-gray-500'}`}>Slideshow</button>
-                 <button onClick={() => setViewMode('scroll')} className={`px-3 py-1.5 text-xs font-bold rounded ${viewMode === 'scroll' ? 'bg-white shadow text-blue-900' : 'text-gray-500'}`}>Scroll</button>
+              <div className="flex bg-gray-100 rounded-lg p-0.5 sm:p-1">
+                 <button onClick={() => setViewMode('slideshow')} className={`px-1.5 py-1 sm:px-2 sm:py-1 md:px-3 md:py-1.5 text-[10px] sm:text-xs font-bold rounded ${viewMode === 'slideshow' ? 'bg-white shadow text-blue-900' : 'text-gray-500'}`}><span className="hidden sm:inline">Slideshow</span><span className="sm:hidden">Show</span></button>
+                 <button onClick={() => setViewMode('scroll')} className={`px-1.5 py-1 sm:px-2 sm:py-1 md:px-3 md:py-1.5 text-[10px] sm:text-xs font-bold rounded ${viewMode === 'scroll' ? 'bg-white shadow text-blue-900' : 'text-gray-500'}`}>Scroll</button>
               </div>
               <button
                 onClick={handleExportPPTX}
                 disabled={exporting}
-                className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${exporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-900 hover:bg-blue-800'} text-white print:hidden`}
+                className={`px-2 py-1 sm:px-3 sm:py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] sm:text-xs font-bold flex items-center gap-1 sm:gap-2 ${exporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-900 hover:bg-blue-800'} text-white print:hidden`}
               >
-                {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileBox size={14}/>}
-                {exporting ? 'Exporting...' : 'Export PPTX'}
+                {exporting ? <Loader2 size={12} className="sm:w-3.5 sm:h-3.5 animate-spin" /> : <FileBox size={12} className="sm:w-3.5 sm:h-3.5"/>}
+                <span className="hidden sm:inline">{exporting ? 'Exporting...' : 'Export PPTX'}</span>
+                <span className="sm:hidden">{exporting ? 'Export' : 'PPTX'}</span>
               </button>
            </div>
        </div>
@@ -1505,7 +1573,7 @@ const PresentationSession = ({ apiKey, user, savedPresentation }) => {
 
 // --- App Shell ---
 const App = () => {
-  const [currentView, setCurrentView] = useState('presentation');
+  const [currentView, setCurrentView] = useState('home');
   const [apiKey, setApiKey] = useState(DEFAULT_API_KEY);
   const [isToolsOpen, setIsToolsOpen] = useState(true);
   const [isAppOpen, setIsAppOpen] = useState(true);
@@ -1611,16 +1679,16 @@ const App = () => {
             closeSidebarOnMobile();
             setActivePresentation(null); // Clear active project if switching views manually
         }}
-        className={`w-full flex items-center p-2 rounded-lg transition-colors ${isSidebarVisible ? 'space-x-3 text-left' : 'justify-center'} ${currentView === view ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
-        title={!isSidebarVisible ? title : ''}
+        className={`w-full flex items-center p-2 rounded-lg transition-colors justify-center ${isSidebarVisible ? 'md:space-x-3 md:text-left md:justify-start' : ''} ${currentView === view ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+        title={title}
       >
         <Icon className={`w-4 h-4 ${currentView === view ? 'text-blue-600' : 'text-gray-400'}`} />
-        {isSidebarVisible && <span className="text-sm">{title}</span>}
+        {isSidebarVisible && <span className="text-sm hidden md:inline">{title}</span>}
       </button>
   );
 
   return (
-    <div className="min-h-screen bg-gray-100 font-sans antialiased flex flex-col md:flex-row">
+    <div className="min-h-screen bg-gray-100 font-sans antialiased md:flex md:flex-row overflow-x-hidden">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* Delete Confirmation Dialog */}
@@ -1649,31 +1717,33 @@ const App = () => {
       )}
 
       {/* Mobile Header */}
-      <div className="md:hidden bg-white border-b p-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+      <div className="md:hidden bg-white border-b px-2 py-2 sm:px-4 sm:py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm min-w-0">
         <div
-          className="font-bold text-blue-800 flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+          className="font-bold text-blue-800 flex items-center gap-1 sm:gap-2 cursor-pointer hover:opacity-80 transition-opacity text-sm sm:text-base truncate flex-1 min-w-0"
           onClick={() => {
             setCurrentView('home');
             setActivePresentation(null);
             setIsMobileMenuOpen(false);
           }}
         >
-           <Presentation className="w-6 h-6" /> BET Slides AI
+           <Presentation className="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" />
+           <span className="truncate">BET Slides AI</span>
         </div>
         <button
           onClick={() => setIsMobileMenuOpen(prev => !prev)}
-          className="p-2 hover:bg-gray-100 rounded-full"
+          className="p-2 hover:bg-gray-100 rounded-lg flex-shrink-0 ml-2 border border-gray-200 bg-white shadow-sm"
+          aria-label="Toggle menu"
         >
-           {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+           {isMobileMenuOpen ? <X className="w-6 h-6 text-blue-600" /> : <Menu className="w-6 h-6 text-blue-600" />}
         </button>
       </div>
 
       {/* Sidebar (Responsive & Collapsible with Icon Mode) */}
       <aside className={`
-          fixed inset-y-0 left-0 z-40 bg-white shadow-xl transition-all duration-300 ease-in-out
-          ${isMobileMenuOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'}
-          ${isSidebarVisible ? 'w-64' : 'md:w-16'}
-          md:relative md:flex flex-col border-r border-gray-200 h-screen sticky top-0
+          fixed left-0 top-0 bottom-0 bg-white shadow-xl transition-all duration-300 ease-in-out z-30
+          ${isMobileMenuOpen ? 'translate-x-0 w-20' : '-translate-x-full md:translate-x-0'}
+          ${isSidebarVisible ? 'md:w-64' : 'md:w-16'}
+          md:relative md:flex md:flex-col md:border-r md:border-gray-200 md:h-screen md:sticky md:z-40
       `}>
         <div className={`border-b border-gray-200 hidden md:flex items-center ${isSidebarVisible ? 'p-6 justify-between' : 'p-4 justify-center flex-col gap-3'}`}>
           {isSidebarVisible ? (
@@ -1718,10 +1788,10 @@ const App = () => {
           )}
         </div>
 
-        <div className={`flex flex-col space-y-1 flex-1 overflow-y-auto mt-16 md:mt-0 ${isSidebarVisible ? 'p-4' : 'p-2'}`}>
+        <div className={`flex flex-col space-y-0.5 flex-1 overflow-y-auto justify-center pt-16 sm:pt-20 md:pt-0 p-1.5 ${isSidebarVisible ? 'md:p-4' : 'md:p-2'}`}>
 
           <SidebarSection title="Creation Tools" isOpen={isToolsOpen} toggleOpen={() => setIsToolsOpen(!isToolsOpen)} Icon={Zap} isSidebarVisible={isSidebarVisible}>
-            {renderNavItem('Create Slides', 'presentation', Presentation)}
+            {renderNavItem('Create Slides', 'presentation', PlusCircle)}
           </SidebarSection>
 
           {/* MY LIBRARY SECTION */}
@@ -1729,22 +1799,33 @@ const App = () => {
              {user ? (
                <div className="space-y-2">
                   <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
-                    {savedProjects.length === 0 && <p className="text-xs text-gray-400 text-center py-2">No saved projects yet.</p>}
+                    {savedProjects.length === 0 && <p className="text-xs text-gray-400 text-center py-2 hidden md:block">No saved projects yet.</p>}
                     {savedProjects.map(p => (
-                       <div key={p.id} onClick={() => handleLoadProject(p)} className="group flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200">
-                          <div className="flex items-center gap-2 overflow-hidden">
-                             <FileText size={14} className="text-blue-500 flex-shrink-0"/>
-                             <span className="text-xs font-medium text-gray-700 truncate">{p.topic || "Untitled"}</span>
+                       <div key={p.id} className="group relative">
+                          {/* Mobile: Vertical stack with name and delete */}
+                          <div className="md:hidden flex flex-col items-center p-1 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                             <FileText size={14} className="text-blue-500 mb-1" onClick={() => handleLoadProject(p)}/>
+                             <span className="text-[8px] font-medium text-gray-700 text-center leading-tight mb-0.5 max-w-full px-0.5 line-clamp-2" onClick={() => handleLoadProject(p)}>{p.topic || "Untitled"}</span>
+                             <button onClick={(e) => handleDeleteProject(p.id, e)} className="text-red-500 hover:text-red-700 p-0.5 rounded" title="Delete">
+                                <Trash2 size={10} />
+                             </button>
                           </div>
-                          <button onClick={(e) => handleDeleteProject(p.id, e)} className="text-gray-300 hover:text-red-500 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                             <Trash2 size={12} />
-                          </button>
+                          {/* Desktop: Horizontal layout */}
+                          <div className="hidden md:flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 cursor-pointer border border-transparent hover:border-gray-200" onClick={() => handleLoadProject(p)} title={p.topic || "Untitled"}>
+                             <div className="flex items-center gap-2 overflow-hidden">
+                                <FileText size={14} className="text-blue-500 flex-shrink-0"/>
+                                <span className="text-xs font-medium text-gray-700 truncate">{p.topic || "Untitled"}</span>
+                             </div>
+                             <button onClick={(e) => handleDeleteProject(p.id, e)} className="text-gray-300 hover:text-red-500 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Trash2 size={12} />
+                             </button>
+                          </div>
                        </div>
                     ))}
                   </div>
                </div>
              ) : isSidebarVisible ? (
-               <div className="p-2">
+               <div className="p-2 hidden md:block">
                  <p className="text-xs text-gray-400 text-center py-2">Sign in to access your saved projects.</p>
                </div>
              ) : null}
@@ -1760,72 +1841,92 @@ const App = () => {
 
         {/* Footer with User Profile/Sign In */}
         <div className="border-t border-gray-200 bg-gray-50">
-          {isSidebarVisible ? (
-            /* Full view */
-            user ? (
-              <div className="p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                    <UserCircle className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 overflow-hidden">
-                    <p className="text-sm font-bold text-gray-900 truncate">{user.displayName || 'User'}</p>
-                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="w-full py-2 bg-white hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-red-200 transition-colors"
-                >
-                  <LogOut size={14} /> Log Out
-                </button>
-              </div>
+          {/* Mobile: Always icon-only */}
+          <div className="p-3 flex justify-center md:hidden">
+            {user ? (
+              <button
+                onClick={handleLogout}
+                className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                title="Log Out"
+              >
+                <LogOut size={20} />
+              </button>
             ) : (
-              <div className="p-4">
-                <p className="text-xs text-gray-500 mb-3 text-center">Sign in to save and manage your presentations.</p>
-                <button
-                  onClick={handleLogin}
-                  className="w-full py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center justify-center gap-2 transition-colors"
-                >
-                  <LogIn size={14} /> Sign In with Google
-                </button>
-              </div>
-            )
-          ) : (
-            /* Icon-only view */
-            <div className="p-3 flex justify-center">
-              {user ? (
-                <button
-                  onClick={handleLogout}
-                  className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
-                  title="Log Out"
-                >
-                  <LogOut size={20} />
-                </button>
+              <button
+                onClick={handleLogin}
+                className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                title="Sign In with Google"
+              >
+                <LogIn size={20} />
+              </button>
+            )}
+          </div>
+
+          {/* Desktop: Full or icon-only based on isSidebarVisible */}
+          <div className="hidden md:block">
+            {isSidebarVisible ? (
+              /* Full view */
+              user ? (
+                <div className="p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <UserCircle className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-sm font-bold text-gray-900 truncate">{user.displayName || 'User'}</p>
+                      <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full py-2 bg-white hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold flex items-center justify-center gap-2 border border-red-200 transition-colors"
+                  >
+                    <LogOut size={14} /> Log Out
+                  </button>
+                </div>
               ) : (
-                <button
-                  onClick={handleLogin}
-                  className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
-                  title="Sign In with Google"
-                >
-                  <LogIn size={20} />
-                </button>
-              )}
-            </div>
-          )}
+                <div className="p-4">
+                  <p className="text-xs text-gray-500 mb-3 text-center">Sign in to save and manage your presentations.</p>
+                  <button
+                    onClick={handleLogin}
+                    className="w-full py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <LogIn size={14} /> Sign In with Google
+                  </button>
+                </div>
+              )
+            ) : (
+              /* Icon-only view */
+              <div className="p-3 flex justify-center">
+                {user ? (
+                  <button
+                    onClick={handleLogout}
+                    className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                    title="Log Out"
+                  >
+                    <LogOut size={20} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleLogin}
+                    className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
+                    title="Sign In with Google"
+                  >
+                    <LogIn size={20} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
-      {/* Overlay for mobile sidebar */}
-      {isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
-      <main className="flex-1 h-[calc(100vh-65px)] md:h-screen overflow-y-auto bg-gray-100 transition-all duration-300">
-        <div className="p-3 md:p-4 max-w-[1600px] mx-auto h-full">
+      <main className={`transition-all duration-300 overflow-y-auto bg-gray-100
+        ${isMobileMenuOpen ? 'ml-20 w-[calc(100%-5rem)]' : 'ml-0 w-full'}
+        md:ml-0 md:flex-1 md:w-auto
+        min-h-[calc(100vh-4rem)] sm:min-h-[calc(100vh-5rem)] md:h-screen
+      `}>
+        <div className="p-0 sm:p-2 md:p-3 lg:p-4 max-w-[1600px] mx-auto h-full min-w-0">
           {currentView === 'presentation' && (
              <PresentationSession
                 apiKey={apiKey}
